@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ورود | DX-Proxy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body class="login-body">
+  <div class="login-wrap">
+    <div class="login-mark">
+      <svg width="34" height="34" viewBox="0 0 24 24" fill="none"><path d="M12 2 3 6v6c0 5 3.8 8.7 9 10 5.2-1.3 9-5 9-10V6l-9-4Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 12.3l2 2 4-4.3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+    <form id="loginForm" class="login-box">
+      <h1>DX-Proxy</h1>
+      <p class="login-sub">ورود به پنل مدیریت پراکسی</p>
+      <label class="field">
+        <span>نام کاربری</span>
+        <input type="text" id="username" autocomplete="username" required>
+      </label>
+      <label class="field">
+        <span>رمز عبور</span>
+        <input type="password" id="password" autocomplete="current-password" required>
+      </label>
+      <button type="submit" class="btn-primary btn-block">ورود</button>
+      <p id="err" class="error"></p>
+    </form>
+    <p class="login-foot">DX-Proxy Panel</p>
+  </div>
+  <script>
+    document.getElementById("loginForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const username = document.getElementById("username").value;
+      const password = document.getElementById("password").value;
+      const errEl = document.getElementById("err");
+      errEl.textContent = "";
+      try {
+        const r = await fetch("/api/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password })
+        });
+        if (r.ok) { window.location.href = "/dashboard.html"; }
+        else { errEl.textContent = "نام کاربری یا رمز عبور اشتباه است"; }
+      } catch { errEl.textContent = "خطا در ارتباط با سرور"; }
+    });
+  </script>
+</body>
+</html>

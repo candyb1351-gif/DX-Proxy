@@ -1,0 +1,253 @@
+#!/bin/bash
+set -e
+source /opt/lib/common.sh
+init_defaults
+
+# ================= user management =================
+cmd_add_user() {
+  local label="$1"
+  [ -z "$label" ] && label="dx_$(head -c3 /dev/urandom | od -An -tx1 | tr -d ' ')"
+  if jq -e --arg u "$label" '.users[] | select(.user==$u)' "$USERS_FILE" >/dev/null; then
+    echo "Error: user '$label' already exists"; exit 1
+  fi
+  local domain secret
+  domain=$(jq -r '.fake_tls_domain' "$SETTINGS_FILE")
+  secret=$(generate_secret "$domain")
+  jq --arg u "$label" --arg s "$secret" \
+    '.users += [{user:$u, secret:$s, enabled:true, created_at:(now|todate)}]' \
+    "$USERS_FILE" > "$USERS_FILE.tmp" && mv "$USERS_FILE.tmp" "$USERS_FILE"
+  regen_config
+  echo "Added user: $label"
+  echo "Link: $(build_link "$secret")"
+}
+
+cmd_remove_user() {
+  local u="$1"
+  [ -z "$u" ] && { echo "Usage: dx remove-user <user>"; exit 1; }
+  jq --arg u "$u" '.users |= map(select(.user != $u))' "$USERS_FILE" > "$USERS_FILE.tmp" && mv "$USERS_FILE.tmp" "$USERS_FILE"
+  regen_config
+  echo "Removed user: $u"
+}
+
+cmd_set_enabled() {
+  local u="$1" val="$2"
+  jq --arg u "$u" --argjson v "$val" \
+    '.users |= map(if .user==$u then .enabled=$v else . end)' \
+    "$USERS_FILE" > "$USERS_FILE.tmp" && mv "$USERS_FILE.tmp" "$USERS_FILE"
+  regen_config
+  echo "User $u enabled=$val"
+}
+
+cmd_rotate_secret() {
+  local u="$1" domain newsecret
+  domain=$(jq -r '.fake_tls_domain' "$SETTINGS_FILE")
+  newsecret=$(generate_secret "$domain")
+  jq --arg u "$u" --arg s "$newsecret" \
+    '.users |= map(if .user==$u then .secret=$s else . end)' \
+    "$USERS_FILE" > "$USERS_FILE.tmp" && mv "$USERS_FILE.tmp" "$USERS_FILE"
+  regen_config
+  echo "Rotated secret for $u"
+  echo "Link: $(build_link "$newsecret")"
+}
+
+cmd_users() {
+  if [ "$1" = "--json" ]; then
+    json_users
+    return
+  fi
+  printf "%-16s %-8s %-70s\n" "USER" "ENABLED" "SECRET"
+  jq -r '.users[] | "\(.user)\t\(.enabled)\t\(.secret)"' "$USERS_FILE" | \
+  while IFS=$'\t' read -r u e s; do
+    printf "%-16s %-8s %-70s\n" "$u" "$e" "$s"
+  done
+}
+
+cmd_info() {
+  if [ "$1" = "--json" ]; then
+    local proxy_host proxy_port
+    proxy_host=$(jq -r '.proxy_host // ""' "$SETTINGS_FILE")
+    proxy_port=$(jq -r '.proxy_port // ""' "$SETTINGS_FILE")
+    jq --arg h "$proxy_host" --arg p "$proxy_port" '
+      [ .users[] | select(.enabled==true) | {
+        user, secret,
+        link: (if $h=="" or $p=="" then null
+               else ("https://t.me/proxy?server="+$h+"&port="+$p+"&secret="+.secret)
+               end)
+      } ]
+    ' "$USERS_FILE"
+    return
+  fi
+  jq -r '.users[] | select(.enabled==true) | "\(.user)\t\(.secret)"' "$USERS_FILE" | \
+  while IFS=$'\t' read -r u s; do
+    echo "# $u"
+    echo "$(build_link "$s")"
+    echo ""
+  done
+}
+
+cmd_settings() {
+  if [ "$1" = "--json" ]; then
+    json_settings
+    return
+  fi
+  jq . "$SETTINGS_FILE"
+}
+
+cmd_export() {
+  echo "user,secret,link"
+  jq -r '.users[] | "\(.user),\(.secret)"' "$USERS_FILE" | \
+  while IFS=, read -r u s; do
+    echo "$u,$s,$(build_link "$s")"
+  done
+}
+
+# ================= proxy / settings =================
+cmd_set_proxy() {
+  local hostport="$1"
+  [ -z "$hostport" ] && { echo "Usage: dx set-proxy <host:port>"; exit 1; }
+  local host="${hostport%%:*}"
+  local port="${hostport##*:}"
+  jq --arg h "$host" --arg p "$port" '.proxy_host=$h | .proxy_port=$p' \
+    "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
+  echo "Proxy set to $host:$port"
+}
+
+cmd_set_domain() {
+  local d="$1"
+  [ -z "$d" ] && { echo "Usage: dx set-domain <fake-tls-domain>"; exit 1; }
+  jq --arg d "$d" '.fake_tls_domain=$d' "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
+  echo "Fake-TLS domain set to $d (applies to newly generated/rotated secrets only)"
+}
+
+# ================= panel auth =================
+cmd_panel_password() {
+  local user="$1" pass="$2"
+  [ -z "$user" ] || [ -z "$pass" ] && { echo "Usage: dx panel-password <username> <password>"; exit 1; }
+  local hash
+  hash=$(node -e "console.log(require('bcryptjs').hashSync(process.argv[1], 10))" "$pass")
+  # Any real password change clears must_change_password, including the
+  # first-run one the operator is being forced through.
+  jq -n --arg u "$user" --arg h "$hash" '{username:$u, password_hash:$h, must_change_password:false}' > "$AUTH_FILE"
+  echo "Panel login updated -> username: $user"
+}
+
+cmd_auth_status() {
+  if [ "$1" = "--json" ]; then
+    json_auth_status
+    return
+  fi
+  jq -r '"username: \(.username)\nmust_change_password: \(.must_change_password // false)"' "$AUTH_FILE"
+}
+
+# ================= stats =================
+cmd_stats() {
+  curl -s "http://127.0.0.1:${STATS_PORT:-9090}/stats" | jq . 2>/dev/null || \
+    echo "Stats endpoint not reachable (is mtg-multi running?)"
+}
+
+# ================= service control =================
+cmd_status() {
+  if [ "$1" = "--json" ]; then
+    json_status
+    return
+  fi
+  echo "== mtg-multi process =="
+  pgrep -a mtg-multi || echo "not running"
+  echo "== Panel process =="
+  pgrep -af "node /opt/panel/server.js" || echo "not running"
+  echo "== Users =="
+  jq -r '.users | length' "$USERS_FILE"
+}
+
+cmd_restart() {
+  regen_config
+  echo "Reload flag set — watchdog will restart mtg-multi shortly"
+}
+
+cmd_logs() {
+  tail -n 50 "$DATA_DIR/mtg.log" 2>/dev/null || echo "no log file yet"
+}
+
+# ================= backup/restore =================
+cmd_backup() {
+  local out="dx-backup-$(date +%Y%m%d-%H%M%S).tar.gz"
+  tar -czf "/tmp/$out" -C "$DATA_DIR" users.json settings.json panel_auth.json
+  echo "Backup written to /tmp/$out (download via Railway console file transfer, or `dx export` for a plain-text copy)"
+}
+
+cmd_restore() {
+  local file="$1"
+  [ -z "$file" ] || [ ! -f "$file" ] && { echo "Usage: dx restore <path-to-tar.gz>"; exit 1; }
+  local tmp
+  tmp=$(mktemp -d)
+  tar -tzf "$file" | grep -qE '^(users\.json|settings\.json|panel_auth\.json)$' || { echo "Invalid backup archive"; exit 1; }
+  tar -xzf "$file" -C "$tmp"
+  [ -f "$tmp/users.json" ] && jq empty "$tmp/users.json" || { echo "users.json invalid JSON"; exit 1; }
+  cp "$tmp/"*.json "$DATA_DIR/"
+  regen_config
+  echo "Restored from $file"
+}
+
+cmd_new() {
+  rm -f "$USERS_FILE"
+  init_defaults
+  regen_config
+  echo "Wiped all users, generated a fresh admin"
+}
+
+# ================= menu =================
+cmd_menu() {
+  while true; do
+    clear
+    echo "==================== DX-Proxy ===================="
+    cmd_status
+    echo "======================================================"
+    echo " [1] Show connection info       [6]  Set proxy host:port"
+    echo " [2] List users                 [7]  Set fake-TLS domain"
+    echo " [3] Add user                   [8]  Reset panel password"
+    echo " [4] Remove user                [9]  Stats"
+    echo " [5] Enable/disable user        [0]  Exit"
+    echo "======================================================"
+    read -rp "Select: " opt
+    case "$opt" in
+      1) cmd_info; read -rp "Press enter..." ;;
+      2) cmd_users; read -rp "Press enter..." ;;
+      3) read -rp "Label (blank=auto): " l; cmd_add_user "$l"; read -rp "Press enter..." ;;
+      4) read -rp "User to remove: " u; cmd_remove_user "$u"; read -rp "Press enter..." ;;
+      5) read -rp "User: " u; read -rp "Enable? (true/false): " v; cmd_set_enabled "$u" "$v"; read -rp "Press enter..." ;;
+      6) read -rp "host:port: " hp; cmd_set_proxy "$hp"; read -rp "Press enter..." ;;
+      7) read -rp "domain: " d; cmd_set_domain "$d"; read -rp "Press enter..." ;;
+      8) read -rp "username: " u; read -rp "password: " p; cmd_panel_password "$u" "$p"; read -rp "Press enter..." ;;
+      9) cmd_stats; read -rp "Press enter..." ;;
+      0) exit 0 ;;
+      *) echo "invalid" ;;
+    esac
+  done
+}
+
+# ================= dispatch =================
+case "$1" in
+  ""|menu) cmd_menu ;;
+  status) cmd_status "$2" ;;
+  users) cmd_users "$2" ;;
+  add-user) cmd_add_user "$2" ;;
+  remove-user) cmd_remove_user "$2" ;;
+  enable-user) cmd_set_enabled "$2" true ;;
+  disable-user) cmd_set_enabled "$2" false ;;
+  rotate-secret) cmd_rotate_secret "$2" ;;
+  info) cmd_info "$2" ;;
+  export) cmd_export ;;
+  settings) cmd_settings "$2" ;;
+  set-proxy) cmd_set_proxy "$2" ;;
+  set-domain) cmd_set_domain "$2" ;;
+  panel-password) cmd_panel_password "$2" "$3" ;;
+  auth-status) cmd_auth_status "$2" ;;
+  stats) cmd_stats ;;
+  restart|reload) cmd_restart ;;
+  logs) cmd_logs ;;
+  backup) cmd_backup ;;
+  restore) cmd_restore "$2" ;;
+  new|reset-users) cmd_new ;;
+  help) grep -E '^\s+[a-z-]+\)' "$0" | sed 's/)//' ;;
+  *) echo "Unknown command: $1. Run 'dx help'." ; exit 1 ;;
+esac
