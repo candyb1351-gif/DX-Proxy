@@ -1,5 +1,7 @@
 #!/bin/bash
 set -e
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
 source /opt/lib/common.sh
 init_defaults
 
@@ -336,6 +338,59 @@ _compact() {
   echo "===================================="
 }
 
+# Helper to present a numbered interactive list for user actions (stderr redirect avoids breaking capture)
+_select_user() {
+  local prompt="$1"
+  local show_status="${2:-false}"
+
+  local users=()
+  local states=()
+
+  while IFS=$'\t' read -r u e; do
+    [ -z "$u" ] && continue
+    users+=("$u")
+    states+=("$e")
+  done < <(jq -r '.users[] | "\(.user)\t\(.enabled)"' "$USERS_FILE" 2>/dev/null)
+
+  local total=${#users[@]}
+  if [ "$total" -eq 0 ]; then
+    echo "No users found." >&2
+    return 1
+  fi
+
+  echo "$prompt" >&2
+  local i
+  for ((i=0; i<total; i++)); do
+    local idx=$((i + 1))
+    if [ "$show_status" = "true" ]; then
+      local status_text
+      if [ "${states[i]}" = "true" ]; then
+        status_text="${_CG}ENABLED${_CR}"
+      else
+        status_text="${_CRD}DISABLED${_CR}"
+      fi
+      printf "  [%d] %-16s (%s)\n" "$idx" "${users[i]}" "$status_text" >&2
+    else
+      printf "  [%d] %s\n" "$idx" "${users[i]}" >&2
+    fi
+  done
+  echo "  [0] Cancel" >&2
+  echo "" >&2
+
+  while true; do
+    read -rp "Select option (0-$total): " choice >&2
+    if [ "$choice" = "0" ]; then
+      return 1
+    fi
+    if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "$total" ]; then
+      local selected_idx=$((choice - 1))
+      echo "${users[selected_idx]} ${states[selected_idx]}"
+      return 0
+    fi
+    echo "Invalid choice. Please try again." >&2
+  done
+}
+
 # ================= menu =================
 cmd_menu() {
   while true; do
@@ -348,23 +403,13 @@ cmd_menu() {
       _compact
     else
       _top
-      _emp
       _logo
-      _emp
       _sep
       _spt 'Creator: @COD-DEXTER' 'Version: 1.0.0'
       _sep
-      _emp
       _sts
-      _emp
       _sep
-      _emp
-      _lft 'Choose an option:'
-      _emp
-      _sep
-      _emp
       _opts
-      _emp
       _bot
     fi
 
@@ -373,8 +418,34 @@ cmd_menu() {
       1) cmd_info; read -rp "Press enter..."; _clear_screen ;;
       2) cmd_users; read -rp "Press enter..."; _clear_screen ;;
       3) read -rp "Label (blank=auto): " l; cmd_add_user "$l"; read -rp "Press enter..."; _clear_screen ;;
-      4) read -rp "User to remove: " u; cmd_remove_user "$u"; read -rp "Press enter..."; _clear_screen ;;
-      5) read -rp "User: " u; read -rp "Enable? (true/false): " v; cmd_set_enabled "$u" "$v"; read -rp "Press enter..."; _clear_screen ;;
+      4) 
+        local sel
+        if sel=$(_select_user "Select a user to remove:" "false"); then
+          local u
+          u=$(echo "$sel" | awk '{print $1}')
+          cmd_remove_user "$u"
+        else
+          echo "Operation cancelled."
+        fi
+        read -rp "Press enter..."; _clear_screen 
+        ;;
+      5) 
+        local sel
+        if sel=$(_select_user "Select a user to toggle status:" "true"); then
+          local u current_state new_state
+          u=$(echo "$sel" | awk '{print $1}')
+          current_state=$(echo "$sel" | awk '{print $2}')
+          if [ "$current_state" = "true" ]; then
+            new_state="false"
+          else
+            new_state="true"
+          fi
+          cmd_set_enabled "$u" "$new_state"
+        else
+          echo "Operation cancelled."
+        fi
+        read -rp "Press enter..."; _clear_screen 
+        ;;
       6) read -rp "username: " u; read -rp "password: " p; cmd_panel_password "$u" "$p"; read -rp "Press enter..."; _clear_screen ;;
       7) cmd_stats; read -rp "Press enter..."; _clear_screen ;;
       0) exit 0 ;;
