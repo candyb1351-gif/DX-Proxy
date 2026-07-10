@@ -243,14 +243,14 @@ _rp() {
   printf '%0.s'"$1" $(seq 1 "$2")
 }
 
-# Clear the terminal screen and reset cursor position robustly
+# Clear the terminal screen and reset cursor position robustly, clearing scrollback history as well
 _clear_screen() {
-  clear 2>/dev/null || true
-  printf "\033[2J\033[H"
+  clear 2>/dev/null || printf "\033[2J\033[3J\033[H"
 }
 
-# Discard any pending keystrokes or newlines in the stdin buffer
+# Discard any pending keystrokes or newlines in the stdin buffer safely
 _flush_stdin() {
+  [ -t 0 ] || return 0
   local discard
   while read -t 0 -r discard; do
     read -r discard
