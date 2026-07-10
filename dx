@@ -213,7 +213,7 @@ cmd_new() {
 }
 
 # ================= menu rendering =================
-MENU_WIDTH=66
+MENU_WIDTH=72
 
 # Colors — only when stdout is a real terminal and NO_COLOR is unset
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
@@ -226,10 +226,17 @@ fi
 _sa() { echo "$1" | sed 's/\x1b\[[0-9;]*m//g'; }
 
 # Printable character count (ignores ANSI codes)
-_pw() { echo "${#(_sa "$1")}"; }
+_pw() {
+  local val
+  val=$(_sa "$1")
+  echo "${#val}"
+}
 
 # Emit N copies of a character
-_rp() { printf '%0.s'"$1" $(seq 1 "$2"); }
+_rp() {
+  [ "$2" -le 0 ] && return
+  printf '%0.s'"$1" $(seq 1 "$2")
+}
 
 # ── box-drawing primitives (all lines = MENU_WIDTH printable chars) ──
 _top() { printf '╔'; _rp '═' $((MENU_WIDTH-2)); printf '╗\n'; }
@@ -289,26 +296,24 @@ _sts() {
 # ── ASCII-art "DX PROXY" logo (centred automatically) ──
 _logo() {
   local _l=(
-'██████╗ ██╗  ██╗    ██████╗ ██████╗  ██████╗ ██╗  ██╗██╗   ██╗'
-'██╔══██╗╚██╗██╔╝    ██╔══██╗██╔══██╗██╔═══██╗╚██╗██╔╝╚██╗ ██╔╝'
-'██║  ██║ ╚███╔╝     ██████╔╝██████╔╝██║   ██║ ╚███╔╝  ╚████╔╝ '
-'██║  ██║ ██╔██╗     ██╔═══╝ ██╔══██╗██║   ██║ ██╔██╗   ╚██╔╝  '
-'██████╔╝██╔╝ ██╗    ██║     ██║  ██║╚██████╔╝██╔╝ ██╗   ██║   '
-'╚═════╝ ╚═╝  ╚═╝    ╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝   '
+    '██╗  ██╗  ██████╗  ███████╗██████╗  █████╗  ██████╗██╗  ██╗'
+    '██║  ██║  ██╔═══██╗ ██╔════╝██╔══██╗██╔══██╗██╔════╝██║ ██╔╝'
+    '███████║  ██║   ██║ █████╗  ██████╔╝███████║██║     █████╔╝'
+    '██╔══██║  ██║   ██║ ██╔══╝  ██╔══██╗██╔══██║██║     ██╔═██╗'
+    '██║  ██║  ╚██████╔╝ ███████╗██║  ██║██║  ██║╚██████╗██║  ██╗'
+    '╚═╝  ╚═╝   ╚═════╝  ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝'
   )
   local line
-  for line in "${_l[@]}"; do
-    _ctr "$line"
-  done
+  for line in "${_l[@]}"; do _ctr "$line"; done
 }
-# ── menu option rows (identical text to the original menu) ──
+
+# ── menu option rows ──
 _opts() {
   local _o=(
-    '[1]  Show connection info     [6]  Set proxy host:port'
-    '[2]  List users               [7]  Set fake-TLS domain'
-    '[3]  Add user                 [8]  Reset panel password'
-    '[4]  Remove user              [9]  Stats'
-    '[5]  Enable/disable user      [0]  Exit'
+    '[1]  Show connection info     [5]  Enable/disable user'
+    '[2]  List users               [6]  Reset panel password'
+    '[3]  Add user                 [7]  Stats'
+    '[4]  Remove user              [0]  Exit'
   )
   local o; for o in "${_o[@]}"; do _lft "$o"; done
 }
@@ -316,10 +321,9 @@ _opts() {
 # ── compact fallback when terminal < MENU_WIDTH columns ──
 _compact() {
   echo "============= DX-Proxy ============="
-  echo " [1] Info     [4] Remove  [7] Domain"
-  echo " [2] Users    [5] Toggle  [8] Password"
-  echo " [3] Add      [6] Proxy   [9] Stats"
-  echo "                           [0] Exit"
+  echo " [1] Info     [4] Remove  [7] Stats"
+  echo " [2] Users    [5] Toggle  [0] Exit"
+  echo " [3] Add      [6] Password"
   echo "===================================="
 }
 
@@ -362,10 +366,8 @@ cmd_menu() {
       3) read -rp "Label (blank=auto): " l; cmd_add_user "$l"; read -rp "Press enter..."; clear ;;
       4) read -rp "User to remove: " u; cmd_remove_user "$u"; read -rp "Press enter..."; clear ;;
       5) read -rp "User: " u; read -rp "Enable? (true/false): " v; cmd_set_enabled "$u" "$v"; read -rp "Press enter..."; clear ;;
-      6) read -rp "host:port: " hp; cmd_set_proxy "$hp"; read -rp "Press enter..."; clear ;;
-      7) read -rp "domain: " d; cmd_set_domain "$d"; read -rp "Press enter..."; clear ;;
-      8) read -rp "username: " u; read -rp "password: " p; cmd_panel_password "$u" "$p"; read -rp "Press enter..."; clear ;;
-      9) cmd_stats; read -rp "Press enter..."; clear ;;
+      6) read -rp "username: " u; read -rp "password: " p; cmd_panel_password "$u" "$p"; read -rp "Press enter..."; clear ;;
+      7) cmd_stats; read -rp "Press enter..."; clear ;;
       0) exit 0 ;;
       *) echo "invalid"; clear ;;
     esac
