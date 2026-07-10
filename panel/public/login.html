@@ -1,51 +1,73 @@
 <!DOCTYPE html>
-<html lang="fa" dir="rtl">
+<html lang="fa" dir="rtl" class="dark">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ورود | DX-Proxy</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/css/style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ورود - DX-Proxy</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/css/style.css">
+    <style>
+        * { font-family: 'Vazirmatn', sans-serif; }
+    </style>
 </head>
-<body class="login-body">
-  <div class="login-wrap">
-    <div class="login-mark">
-      <svg width="34" height="34" viewBox="0 0 24 24" fill="none"><path d="M12 2 3 6v6c0 5 3.8 8.7 9 10 5.2-1.3 9-5 9-10V6l-9-4Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 12.3l2 2 4-4.3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<body class="min-h-screen flex items-center justify-center p-4">
+    <div class="max-w-md w-full glass rounded-3xl p-8 glow text-right">
+        <div class="text-center mb-8">
+            <div class="inline-block p-4 rounded-2xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-indigo-500/20 mb-4">
+                <svg class="w-10 h-10 text-indigo-400 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                </svg>
+            </div>
+            <h2 class="text-2xl font-black text-white mb-1">ورود به پنل DX-Proxy</h2>
+            <p class="text-zinc-400 text-sm">جهت دسترسی به داشبورد مدیریتی، مشخصات خود را وارد کنید</p>
+        </div>
+        
+        <form id="loginForm" class="space-y-4">
+            <div>
+                <label class="block text-zinc-300 text-xs font-semibold mb-1.5 uppercase tracking-wider">نام کاربری</label>
+                <input type="text" id="username" class="w-full px-4 py-3.5 rounded-xl text-white placeholder-zinc-500 text-sm outline-none transition bg-white/5 border border-white/10 focus:border-indigo-500 text-left" dir="ltr" placeholder="Username" required autocomplete="username">
+            </div>
+            <div>
+                <label class="block text-zinc-300 text-xs font-semibold mb-1.5 uppercase tracking-wider">رمز عبور</label>
+                <input type="password" id="password" class="w-full px-4 py-3.5 rounded-xl text-white placeholder-zinc-500 text-sm outline-none transition bg-white/5 border border-white/10 focus:border-indigo-500 text-left" dir="ltr" placeholder="Password" required autocomplete="current-password">
+            </div>
+            <button type="submit" id="submit-btn" class="w-full py-4 bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 text-white font-bold rounded-xl transition text-sm shadow-lg shadow-indigo-500/25 transform hover:scale-[1.02]">ورود به داشبورد</button>
+            <p id="err" class="text-red-400 text-xs text-center font-medium min-h-[16px] mt-2"></p>
+        </form>
     </div>
-    <form id="loginForm" class="login-box">
-      <h1>DX-Proxy</h1>
-      <p class="login-sub">ورود به پنل مدیریت پراکسی</p>
-      <label class="field">
-        <span>نام کاربری</span>
-        <input type="text" id="username" autocomplete="username" required>
-      </label>
-      <label class="field">
-        <span>رمز عبور</span>
-        <input type="password" id="password" autocomplete="current-password" required>
-      </label>
-      <button type="submit" class="btn-primary btn-block">ورود</button>
-      <p id="err" class="error"></p>
-    </form>
-    <p class="login-foot">DX-Proxy Panel</p>
-  </div>
-  <script>
-    document.getElementById("loginForm").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const username = document.getElementById("username").value;
-      const password = document.getElementById("password").value;
-      const errEl = document.getElementById("err");
-      errEl.textContent = "";
-      try {
-        const r = await fetch("/api/login", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username, password })
+
+    <script>
+        document.getElementById("loginForm").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const username = document.getElementById("username").value;
+            const password = document.getElementById("password").value;
+            const errEl = document.getElementById("err");
+            const btn = document.getElementById("submit-btn");
+            
+            errEl.textContent = "";
+            btn.disabled = true;
+            btn.innerText = "در حال ورود...";
+
+            try {
+                const r = await fetch("/api/login", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await r.json();
+                if (r.ok && data.ok) {
+                    window.location.href = "/dashboard.html";
+                } else {
+                    errEl.textContent = "نام کاربری یا رمز عبور اشتباه است";
+                }
+            } catch {
+                errEl.textContent = "خطا در ارتباط با سرور";
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "ورود به داشبورد";
+            }
         });
-        if (r.ok) { window.location.href = "/dashboard.html"; }
-        else { errEl.textContent = "نام کاربری یا رمز عبور اشتباه است"; }
-      } catch { errEl.textContent = "خطا در ارتباط با سرور"; }
-    });
-  </script>
+    </script>
 </body>
 </html>
