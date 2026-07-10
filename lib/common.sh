@@ -12,22 +12,56 @@ RELOAD_FLAG="$DATA_DIR/.reload"
 
 mkdir -p "$DATA_DIR" /etc/mtg
 
+# ---------- apply Railway env variables ----------
+apply_railway_env() {
+  if [ -f "$SETTINGS_FILE" ]; then
+    local current_host current_port current_domain
+    current_host=$(jq -r '.proxy_host // ""' "$SETTINGS_FILE")
+    current_port=$(jq -r '.proxy_port // ""' "$SETTINGS_FILE")
+    current_domain=$(jq -r '.fake_tls_domain // ""' "$SETTINGS_FILE")
+
+    local next_host="$current_host"
+    local next_port="$current_port"
+    local next_domain="$current_domain"
+
+    if [ -n "${RAILWAY_TCP_PROXY_DOMAIN:-}" ]; then
+      next_host="${RAILWAY_TCP_PROXY_DOMAIN}"
+    fi
+    if [ -n "${RAILWAY_TCP_PROXY_PORT:-}" ]; then
+      next_port="${RAILWAY_TCP_PROXY_PORT}"
+    fi
+    if [ -n "${RAILWAY_PUBLIC_DOMAIN:-}" ]; then
+      next_domain="${RAILWAY_PUBLIC_DOMAIN}"
+    fi
+
+    if [ "$current_host" != "$next_host" ] || [ "$current_port" != "$next_port" ] || [ "$current_domain" != "$next_domain" ]; then
+      jq --arg h "$next_host" --arg p "$next_port" --arg d "$next_domain" \
+        '.proxy_host=$h | .proxy_port=$p | .fake_tls_domain=$d' \
+        "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
+      echo "[railway-env] Automatically updated settings from Railway variables."
+    fi
+  fi
+}
+
 # ---------- init defaults on first run ----------
 init_defaults() {
+  if [ ! -f "$SETTINGS_FILE" ]; then
+    jq -n --arg d "${FAKE_TLS_DOMAIN:-www.yahoo.com}" '
+      {fake_tls_domain:$d, proxy_host:"", proxy_port:""}
+    ' > "$SETTINGS_FILE"
+  fi
+
+  apply_railway_env
+
   if [ ! -f "$USERS_FILE" ]; then
-    local domain="${FAKE_TLS_DOMAIN:-www.yahoo.com}"
+    local domain
+    domain=$(jq -r '.fake_tls_domain // "www.yahoo.com"' "$SETTINGS_FILE")
     local secret
     secret=$(generate_secret "$domain")
     jq -n --arg user "dx_admin" --arg secret "$secret" '
       {users: [{user:$user, secret:$secret, enabled:true, created_at:(now|todate)}], version:1}
     ' > "$USERS_FILE"
     echo "[init] created default admin user 'dx_admin'"
-  fi
-
-  if [ ! -f "$SETTINGS_FILE" ]; then
-    jq -n --arg d "${FAKE_TLS_DOMAIN:-www.yahoo.com}" '
-      {fake_tls_domain:$d, proxy_host:"", proxy_port:""}
-    ' > "$SETTINGS_FILE"
   fi
 
   if [ ! -f "$AUTH_FILE" ]; then
@@ -87,6 +121,8 @@ generate_secret() {
 
 # ---------- config regeneration ----------
 regen_config() {
+  apply_railway_env
+
   local proxy_host proxy_port
   proxy_host=$(jq -r '.proxy_host // ""' "$SETTINGS_FILE")
   proxy_port=$(jq -r '.proxy_port // ""' "$SETTINGS_FILE")
