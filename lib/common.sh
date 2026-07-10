@@ -129,7 +129,7 @@ regen_config() {
 
   {
     echo "bind-to = \"0.0.0.0:${MT_PORT:-8080}\""
-    echo "stats-bind-to = \"127.0.0.1:${STATS_PORT:-9090}\""
+    echo "api-bind-to = \"127.0.0.1:${STATS_PORT:-9090}\""
     echo ""
     echo "[secrets]"
     jq -r '.users[] | select(.enabled==true) | "\(.user) = \"\(.secret)\""' "$USERS_FILE"
