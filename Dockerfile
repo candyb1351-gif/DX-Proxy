@@ -50,7 +50,10 @@ ENV STATS_PORT=9090
 ENV FAKE_TLS_DOMAIN=www.yahoo.com
 ENV DATA_DIR=/data
 
-VOLUME ["/data"]
+# NOTE: Railway does not support the Docker VOLUME instruction at build time
+# (it manages persistence itself). To keep /data across redeploys, add a
+# Railway Volume from the service's "Volumes" tab and mount it at /data —
+# no Dockerfile change needed for that, DATA_DIR already points there.
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD (echo > /dev/tcp/127.0.0.1/${MT_PORT}) 2>/dev/null || exit 1
