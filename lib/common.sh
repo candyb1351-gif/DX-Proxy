@@ -114,3 +114,45 @@ build_link() {
     echo "https://t.me/proxy?server=${proxy_host}&port=${proxy_port}&secret=${secret}"
   fi
 }
+
+# ---------- host:port normalization & validation ----------
+# Called by dx set-proxy (CLI) and indirectly by the panel (via dx).
+# Strips protocol prefix, strips path, preserves optional :port,
+# rejects empty / whitespace / hostnames with no dot (except localhost).
+normalize_host_port() {
+  local input="$1"
+  # Strip leading http:// or https://
+  input="${input#http://}"
+  input="${input#https://}"
+  # Strip path (everything from first / onward)
+  input="${input%%/*}"
+  # Trim whitespace
+  input="$(echo "$input" | tr -d '[:space:]')"
+
+  [ -z "$input" ] && { echo "Error: proxy address cannot be empty" >&2; return 1; }
+
+  local host port
+  if [[ "$input" == *:* ]]; then
+    host="${input%%:*}"
+    port="${input##*:}"
+    if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+      echo "Error: invalid port '$port'" >&2; return 1
+    fi
+  else
+    host="$input"
+    port=""
+  fi
+
+  if [[ "$host" != "localhost" && "$host" != *.* ]]; then
+    echo "Error: invalid hostname '$host' — must be a valid domain (e.g. example.com) or localhost" >&2; return 1
+  fi
+  if [[ ! "$host" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+    echo "Error: invalid characters in hostname '$host'" >&2; return 1
+  fi
+
+  if [ -n "$port" ]; then
+    echo "${host}:${port}"
+  else
+    echo "$host"
+  fi
+}

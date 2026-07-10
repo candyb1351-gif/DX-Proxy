@@ -105,11 +105,28 @@ cmd_export() {
 cmd_set_proxy() {
   local hostport="$1"
   [ -z "$hostport" ] && { echo "Usage: dx set-proxy <host:port>"; exit 1; }
-  local host="${hostport%%:*}"
-  local port="${hostport##*:}"
+
+  local normalized
+  if ! normalized=$(normalize_host_port "$hostport"); then
+    exit 1
+  fi
+
+  local host port
+  if [[ "$normalized" == *:* ]]; then
+    host="${normalized%%:*}"
+    port="${normalized##*:}"
+  else
+    host="$normalized"
+    port=""
+  fi
+
   jq --arg h "$host" --arg p "$port" '.proxy_host=$h | .proxy_port=$p' \
     "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
-  echo "Proxy set to $host:$port"
+  if [ -n "$port" ]; then
+    echo "Proxy set to $host:$port"
+  else
+    echo "Proxy set to $host"
+  fi
 }
 
 cmd_set_domain() {
@@ -195,32 +212,161 @@ cmd_new() {
   echo "Wiped all users, generated a fresh admin"
 }
 
+# ================= menu rendering =================
+MENU_WIDTH=66
+
+# Colors — only when stdout is a real terminal and NO_COLOR is unset
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+  _CR='\033[0m'; _CG='\033[0;32m'; _CRD='\033[0;31m'
+else
+  _CR=''; _CG=''; _CRD=''
+fi
+
+# Strip ANSI escape sequences for printable-width measurement
+_sa() { echo "$1" | sed 's/\x1b\[[0-9;]*m//g'; }
+
+# Printable character count (ignores ANSI codes)
+_pw() { echo "${#(_sa "$1")}"; }
+
+# Emit N copies of a character
+_rp() { printf '%0.s'"$1" $(seq 1 "$2"); }
+
+# ── box-drawing primitives (all lines = MENU_WIDTH printable chars) ──
+_top() { printf '╔'; _rp '═' $((MENU_WIDTH-2)); printf '╗\n'; }
+_bot() { printf '╚'; _rp '═' $((MENU_WIDTH-2)); printf '╝\n'; }
+_sep() { printf '╠'; _rp '═' $((MENU_WIDTH-2)); printf '╣\n'; }
+_emp() { printf '║'; _rp ' ' $((MENU_WIDTH-2)); printf '║\n'; }
+
+# Centered content row: ║<pad><text><pad>║
+_ctr() {
+  local w; w=$(_pw "$1")
+  local inner=$((MENU_WIDTH-2))
+  local lpad=$(( (inner-w)/2 ))
+  local rpad=$(( inner-w-lpad ))
+  printf '║'; _rp ' ' "$lpad"; printf '%s' "$1"; _rp ' ' "$rpad"; printf '║\n'
+}
+
+# Left-aligned row: ║ <text><pad>║
+_lft() {
+  local w; w=$(_pw "$1")
+  local rpad=$(( MENU_WIDTH-3-w ))
+  [ "$rpad" -lt 0 ] && rpad=0
+  printf '║ %s' "$1"; _rp ' ' "$rpad"; printf '║\n'
+}
+
+# Split row (left text + right text, gap-filled): ║ <left><gap><right>║
+_spt() {
+  local lw; lw=$(_pw "$1")
+  local rw; rw=$(_pw "$2")
+  local gap=$(( MENU_WIDTH-3-lw-rw ))
+  [ "$gap" -lt 0 ] && gap=0
+  printf '║ %s%*s%s' "$1" "$gap" "" "$2"
+  printf '║\n'
+}
+
+# Proxy-status row with ANSI colour
+_sts() {
+  local running
+  running=$(pgrep -x mtg-multi >/dev/null 2>&1 && echo true || echo false)
+
+  local label="Proxy Status:   "
+  local lw; lw=$(_pw "$label")
+  local sw=7  # "RUNNING" or "STOPPED" — same printable length
+
+  local colour
+  if [ "$running" = "true" ]; then colour="${_CG}RUNNING${_CR}"
+  else colour="${_CRD}STOPPED${_CR}"; fi
+
+  local inner=$((MENU_WIDTH-2))
+  local rpad=$(( inner-1-lw-sw ))
+  [ "$rpad" -lt 0 ] && rpad=0
+
+  printf '║ %s%s' "$label" "$colour"
+  _rp ' ' "$rpad"
+  printf '║\n'
+}
+
+# ── ASCII-art "DX PROXY" logo (centred automatically) ──
+_logo() {
+  local _l=(
+    '██╗  ██╗  ██████╗  ███████╗██████╗  █████╗  ██████╗██╗  ██╗'
+    '██║  ██║  ██╔═══██╗ ██╔════╝██╔══██╗██╔══██╗██╔════╝██║ ██╔╝'
+    '███████║  ██║   ██║ █████╗  ██████╔╝███████║██║     █████╔╝'
+    '██╔══██║  ██║   ██║ ██╔══╝  ██╔══██╗██╔══██║██║     ██╔═██╗'
+    '██║  ██║  ╚██████╔╝ ███████╗██║  ██║██║  ██║╚██████╗██║  ██╗'
+    '╚═╝  ╚═╝   ╚═════╝  ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝'
+  )
+  local line
+  for line in "${_l[@]}"; do _ctr "$line"; done
+}
+
+# ── menu option rows (identical text to the original menu) ──
+_opts() {
+  local _o=(
+    '[1]  Show connection info     [6]  Set proxy host:port'
+    '[2]  List users               [7]  Set fake-TLS domain'
+    '[3]  Add user                 [8]  Reset panel password'
+    '[4]  Remove user              [9]  Stats'
+    '[5]  Enable/disable user      [0]  Exit'
+  )
+  local o; for o in "${_o[@]}"; do _lft "$o"; done
+}
+
+# ── compact fallback when terminal < MENU_WIDTH columns ──
+_compact() {
+  echo "============= DX-Proxy ============="
+  echo " [1] Info     [4] Remove  [7] Domain"
+  echo " [2] Users    [5] Toggle  [8] Password"
+  echo " [3] Add      [6] Proxy   [9] Stats"
+  echo "                           [0] Exit"
+  echo "===================================="
+}
+
 # ================= menu =================
 cmd_menu() {
   while true; do
     clear
-    echo "==================== DX-Proxy ===================="
-    cmd_status
-    echo "======================================================"
-    echo " [1] Show connection info       [6]  Set proxy host:port"
-    echo " [2] List users                 [7]  Set fake-TLS domain"
-    echo " [3] Add user                   [8]  Reset panel password"
-    echo " [4] Remove user                [9]  Stats"
-    echo " [5] Enable/disable user        [0]  Exit"
-    echo "======================================================"
-    read -rp "Select: " opt
+
+    local cols
+    cols=$(tput cols 2>/dev/null || echo 80)
+
+    if [ "$cols" -lt "$MENU_WIDTH" ]; then
+      _compact
+    else
+      _top
+      _emp
+      _logo
+      _emp
+      _sep
+      _spt 'Creator: @COD-DEXTER' 'Version: 1.0.0'
+      _sep
+      _emp
+      _sts
+      _emp
+      _sep
+      _emp
+      _lft 'Choose an option:'
+      _emp
+      _sep
+      _emp
+      _opts
+      _emp
+      _bot
+    fi
+
+    read -rp "❯ " opt
     case "$opt" in
-      1) cmd_info; read -rp "Press enter..." ;;
-      2) cmd_users; read -rp "Press enter..." ;;
-      3) read -rp "Label (blank=auto): " l; cmd_add_user "$l"; read -rp "Press enter..." ;;
-      4) read -rp "User to remove: " u; cmd_remove_user "$u"; read -rp "Press enter..." ;;
-      5) read -rp "User: " u; read -rp "Enable? (true/false): " v; cmd_set_enabled "$u" "$v"; read -rp "Press enter..." ;;
-      6) read -rp "host:port: " hp; cmd_set_proxy "$hp"; read -rp "Press enter..." ;;
-      7) read -rp "domain: " d; cmd_set_domain "$d"; read -rp "Press enter..." ;;
-      8) read -rp "username: " u; read -rp "password: " p; cmd_panel_password "$u" "$p"; read -rp "Press enter..." ;;
-      9) cmd_stats; read -rp "Press enter..." ;;
+      1) cmd_info; read -rp "Press enter..."; clear ;;
+      2) cmd_users; read -rp "Press enter..."; clear ;;
+      3) read -rp "Label (blank=auto): " l; cmd_add_user "$l"; read -rp "Press enter..."; clear ;;
+      4) read -rp "User to remove: " u; cmd_remove_user "$u"; read -rp "Press enter..."; clear ;;
+      5) read -rp "User: " u; read -rp "Enable? (true/false): " v; cmd_set_enabled "$u" "$v"; read -rp "Press enter..."; clear ;;
+      6) read -rp "host:port: " hp; cmd_set_proxy "$hp"; read -rp "Press enter..."; clear ;;
+      7) read -rp "domain: " d; cmd_set_domain "$d"; read -rp "Press enter..."; clear ;;
+      8) read -rp "username: " u; read -rp "password: " p; cmd_panel_password "$u" "$p"; read -rp "Press enter..."; clear ;;
+      9) cmd_stats; read -rp "Press enter..."; clear ;;
       0) exit 0 ;;
-      *) echo "invalid" ;;
+      *) echo "invalid"; clear ;;
     esac
   done
 }
