@@ -49,6 +49,9 @@ ENV PANEL_PORT=2053
 ENV STATS_PORT=9090
 ENV FAKE_TLS_DOMAIN=www.yahoo.com
 ENV DATA_DIR=/data
+# lets ad-hoc `node -e ...` calls in dx/common.sh (run outside /opt/panel,
+# e.g. for password hashing) resolve modules installed for the panel
+ENV NODE_PATH=/opt/panel/node_modules
 
 # NOTE: Railway does not support the Docker VOLUME instruction at build time
 # (it manages persistence itself). To keep /data across redeploys, add a
