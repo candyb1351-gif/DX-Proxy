@@ -217,13 +217,16 @@ MENU_WIDTH=72
 
 # Colors — only when stdout is a real terminal and NO_COLOR is unset
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
-  _CR='\033[0m'; _CG='\033[0;32m'; _CRD='\033[0;31m'
+  _CR=$'\033[0m'; _CG=$'\033[0;32m'; _CRD=$'\033[0;31m'
 else
   _CR=''; _CG=''; _CRD=''
 fi
 
 # Strip ANSI escape sequences for printable-width measurement
-_sa() { echo "$1" | sed 's/\x1b\[[0-9;]*m//g'; }
+_sa() {
+  local esc=$'\033'
+  echo "$1" | sed "s/${esc}\\[[0-9;]*m//g"
+}
 
 # Printable character count (ignores ANSI codes)
 _pw() {
@@ -236,6 +239,12 @@ _pw() {
 _rp() {
   [ "$2" -le 0 ] && return
   printf '%0.s'"$1" $(seq 1 "$2")
+}
+
+# Clear the terminal screen and reset cursor position robustly
+_clear_screen() {
+  clear 2>/dev/null || true
+  printf "\033[2J\033[H"
 }
 
 # ── box-drawing primitives (all lines = MENU_WIDTH printable chars) ──
@@ -296,12 +305,12 @@ _sts() {
 # ── ASCII-art "DX PROXY" logo (centred automatically) ──
 _logo() {
   local _l=(
-    '██╗  ██╗  ██████╗  ███████╗██████╗  █████╗  ██████╗██╗  ██╗'
-    '██║  ██║  ██╔═══██╗ ██╔════╝██╔══██╗██╔══██╗██╔════╝██║ ██╔╝'
-    '███████║  ██║   ██║ █████╗  ██████╔╝███████║██║     █████╔╝'
-    '██╔══██║  ██║   ██║ ██╔══╝  ██╔══██╗██╔══██║██║     ██╔═██╗'
-    '██║  ██║  ╚██████╔╝ ███████╗██║  ██║██║  ██║╚██████╗██║  ██╗'
-    '╚═╝  ╚═╝   ╚═════╝  ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝'
+    '██████╗ ██╗  ██╗   ██████╗ ██████╗  ██████╗ ██╗  ██╗██╗  ██╗'
+    '██╔══██╗╚██╗██╔╝   ██╔══██╗██╔══██╗██╔═══██╗╚██╗██╔╝╚██╗██╔╝'
+    '██║  ██║ ╚███╔╝    ██████╔╝██████╔╝██║   ██║ ╚███╔╝   ╚███╔╝ '
+    '██║  ██║ ██╔██╗    ██╔═══╝ ██╔══██╗██║   ██║ ██╔██╗    ██║   '
+    '██████╔╝██╔╝ ██╗   ██║     ██║  ██║╚██████╔╝██╔╝ ██╗   ██║   '
+    '╚═════╝ ╚═╝  ╚═╝   ╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝   '
   )
   local line
   for line in "${_l[@]}"; do _ctr "$line"; done
@@ -330,7 +339,7 @@ _compact() {
 # ================= menu =================
 cmd_menu() {
   while true; do
-    clear
+    _clear_screen
 
     local cols
     cols=$(tput cols 2>/dev/null || echo 80)
@@ -361,15 +370,15 @@ cmd_menu() {
 
     read -rp "❯ " opt
     case "$opt" in
-      1) cmd_info; read -rp "Press enter..."; clear ;;
-      2) cmd_users; read -rp "Press enter..."; clear ;;
-      3) read -rp "Label (blank=auto): " l; cmd_add_user "$l"; read -rp "Press enter..."; clear ;;
-      4) read -rp "User to remove: " u; cmd_remove_user "$u"; read -rp "Press enter..."; clear ;;
-      5) read -rp "User: " u; read -rp "Enable? (true/false): " v; cmd_set_enabled "$u" "$v"; read -rp "Press enter..."; clear ;;
-      6) read -rp "username: " u; read -rp "password: " p; cmd_panel_password "$u" "$p"; read -rp "Press enter..."; clear ;;
-      7) cmd_stats; read -rp "Press enter..."; clear ;;
+      1) cmd_info; read -rp "Press enter..."; _clear_screen ;;
+      2) cmd_users; read -rp "Press enter..."; _clear_screen ;;
+      3) read -rp "Label (blank=auto): " l; cmd_add_user "$l"; read -rp "Press enter..."; _clear_screen ;;
+      4) read -rp "User to remove: " u; cmd_remove_user "$u"; read -rp "Press enter..."; _clear_screen ;;
+      5) read -rp "User: " u; read -rp "Enable? (true/false): " v; cmd_set_enabled "$u" "$v"; read -rp "Press enter..."; _clear_screen ;;
+      6) read -rp "username: " u; read -rp "password: " p; cmd_panel_password "$u" "$p"; read -rp "Press enter..."; _clear_screen ;;
+      7) cmd_stats; read -rp "Press enter..."; _clear_screen ;;
       0) exit 0 ;;
-      *) echo "invalid"; clear ;;
+      *) echo "invalid"; _clear_screen ;;
     esac
   done
 }
