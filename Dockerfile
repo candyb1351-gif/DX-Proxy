@@ -26,6 +26,10 @@ FROM alpine:3.20
 
 RUN apk add --no-cache bash jq curl nodejs tzdata ca-certificates
 
+# Ensure UTF-8 locale support so Bash can correctly calculate string length of block/box characters
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
 # mtg-multi binary
 COPY --from=build-mtg /mtg-multi /usr/local/bin/mtg-multi
 
